@@ -93,14 +93,15 @@ public:
             sockaddr_in client_addr;
             socklen_t client_size = sizeof(client_addr);
 
-            // Accept connection with timeout handling
+            // Accept connection - this will fail when socket is closed by signal handler
             int client_socket = accept(listening_socket, (sockaddr*)&client_addr, &client_size);
 
             if (client_socket == -1) {
-                if (running) {
+                if (running && !g_shutdown_requested) {
                     cerr << "Failed to accept connection: " << strerror(errno) << endl;
                 }
-                continue;
+                // If running is false, this means we're shutting down, so break
+                break;
             }
 
             // Get client information
@@ -126,18 +127,19 @@ public:
 
         running = false;
 
-        // Close listening socket to break accept() loop
+        // Close listening socket to interrupt accept()
         if (listening_socket != -1) {
+            shutdown(listening_socket, SHUT_RDWR);
             close(listening_socket);
             listening_socket = -1;
         }
 
-        // Wait for all client threads to finish
+        // Wait for client threads to finish (with reasonable timeout)
         {
             lock_guard<mutex> lock(client_mutex);
             for (auto& thread_ptr : client_threads) {
                 if (thread_ptr && thread_ptr->joinable()) {
-                    thread_ptr->join();
+                    thread_ptr->detach(); // Let them finish naturally
                 }
             }
             client_threads.clear();
@@ -152,7 +154,7 @@ private:
         string client_id = client_ip + ":" + to_string(client_port);
 
         // Send welcome message
-        string welcome = "Welcome to Enhanced TCP Server!\n";
+        string welcome = "Welcome to  TCP Server!\n";
         send(client_socket, welcome.c_str(), welcome.length(), 0);
 
         while (running) {
@@ -231,20 +233,24 @@ int main() {
     signal(SIGINT, signal_handler);
     signal(SIGTERM, signal_handler);
 
-    // Run server in a separate thread so we can handle shutdown
+    cout << "Server running. Press Ctrl+C to stop." << endl;
+
+    // Start server in a separate thread so signal handling works properly
     thread server_thread(&TCPServer::run, &server);
 
-    // Wait for shutdown signal
+    // Monitor for shutdown signal
     while (!g_shutdown_requested) {
         this_thread::sleep_for(chrono::milliseconds(100));
     }
 
-    cout << "\nShutting down server..." << endl;
+    cout << "Shutting down server..." << endl;
     server.stop();
 
+    // Wait for server thread to finish
     if (server_thread.joinable()) {
         server_thread.join();
     }
 
+    cout << "Program exited." << endl;
     return 0;
 }

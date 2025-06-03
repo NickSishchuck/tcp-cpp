@@ -40,7 +40,7 @@ The server supports several interactive commands:
 
 ```bash
 # Clone or download the project
-git clone <https://github.com/NickSishchuck/tcp-cpp.git>
+git clone https://github.com/NickSishchuck/tcp-cpp.git
 cd tcp-cpp
 
 # Create build directory
